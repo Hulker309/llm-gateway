@@ -26,7 +26,7 @@ pre.log{background:#0a0a0e;padding:10px;border-radius:4px;font-size:11px;max-hei
 </style>
 </head>
 <body>
-<h1>LLM Gateway</h1>
+<h1>LLM Gateway <span style="color:#555;font-size:11px">v3</span></h1>
 <div id=st class=st></div>
 
 <div class=card>
@@ -67,7 +67,7 @@ function uid() { return 'p' + (nextId++); }
 
 async function load() {
   try {
-    var r = await fetch('/api/config');
+    var r = await fetch('/api/config?_=' + Date.now());
     var d = await r.json();
     P = d.providers || [];
     R = d.routes || [];
@@ -101,23 +101,23 @@ function render() {
 
   // Routes
   var re = document.getElementById('rl');
-  var opts = '';
-  for (var j = 0; j < P.length; j++) { opts += '<option value="' + esc(P[j].id) + '">' + esc(P[j].name || P[j].id) + '</option>'; }
-  if (!R.length) { re.innerHTML = '<div style=color:#555;padding:6px>No routes</div>'; }
-  else {
-    var h2 = '';
-    for (var i = 0; i < R.length; i++) {
-      var r = R[i];
-      h2 += '<div class=row style=background:#0f0f13;padding:6px;border-radius:4px>';
-      h2 += '<span style=color:#555;font-size:12px>' + (i+1) + '.</span>';
-      h2 += '<input id="rp_' + i + '" value="' + esc(r.pattern) + '" placeholder="Exact model name" onchange="R[' + i + '].pattern=this.value" style=width:200px>';
-      h2 += '<select id="rt_' + i + '" onchange="R[' + i + '].target=this.value" style=width:120px>' + opts + '</select>';
-      h2 += '<input value="' + esc(r.label||'') + '" onchange="R[' + i + '].label=this.value" style=flex:1>';
-      h2 += '<button class="btn bg" onclick="testRoute(' + i + ')">test</button>';
-      h2 += '<button class="btn bd" onclick="R.splice(' + i + ',1);render()">x</button></div>';
+  if (!R.length) { re.innerHTML = '<div style=color:#555;padding:6px>No routes</div>'; return; }
+  var h2 = '';
+  for (var i = 0; i < R.length; i++) {
+    var r = R[i];
+    var opts = '';
+    for (var j = 0; j < P.length; j++) {
+      opts += '<option value="' + esc(P[j].id) + '"' + (P[j].id === r.target ? ' selected' : '') + '>' + esc(P[j].name || P[j].id) + '</option>';
     }
-    re.innerHTML = h2;
+    h2 += '<div class=row style=background:#0f0f13;padding:6px;border-radius:4px>';
+    h2 += '<span style=color:#555;font-size:12px>' + (i+1) + '.</span>';
+    h2 += '<input id="rp_' + i + '" value="' + esc(r.pattern) + '" placeholder="Exact model name" onchange="R[' + i + '].pattern=this.value" style=width:200px>';
+    h2 += '<select id="rt_' + i + '" onchange="R[' + i + '].target=this.value" style=width:120px>' + opts + '</select>';
+    h2 += '<input value="' + esc(r.label||'') + '" onchange="R[' + i + '].label=this.value" style=flex:1>';
+    h2 += '<button class="btn bg" onclick="testRoute(' + i + ')">test</button>';
+    h2 += '<button class="btn bd" onclick="R.splice(' + i + ',1);render()">x</button></div>';
   }
+  re.innerHTML = h2;
 }
 
 function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -162,10 +162,25 @@ async function testRoute(idx) {
 }
 
 function buildConfig() {
+  // Read routes FROM DOM (not from memory, to avoid stale onchange values)
+  var routeCount = R.length;
+  var routeArr = [];
+  for (var i = 0; i < routeCount; i++) {
+    var patEl = document.getElementById('rp_' + i);
+    var tgtEl = document.getElementById('rt_' + i);
+    if (!patEl || !tgtEl) continue;
+    routeArr.push({
+      pattern: patEl.value,
+      target: tgtEl.value,
+      label: R[i] ? R[i].label : '',
+    });
+    // Sync back to memory
+    if (R[i]) { R[i].pattern = patEl.value; R[i].target = tgtEl.value; }
+  }
   return {
     gateway: { port: +document.getElementById('gp').value || 3456, apiKey: document.getElementById('gk').value },
     providers: P.map(function(p) { return { id: p.id, name: p.name, baseUrl: p.baseUrl, apiKey: p.apiKey, enabled: p.enabled !== false }; }),
-    routes: R.map(function(r) { return { pattern: r.pattern, target: r.target, label: r.label }; })
+    routes: routeArr,
   };
 }
 
