@@ -1,0 +1,1 @@
+CreateObject("WScript.Shell").Run "powershell -ExecutionPolicy Bypass -File """ & CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName) & "\start-tray.ps1""", 0, False

@@ -1,0 +1,11 @@
+{
+  "name": "llm-gateway",
+  "version": "1.0.0",
+  "description": "LLM Gateway — 多后端路由代理 + 管理面板",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "",
+  "license": "MIT"
+}

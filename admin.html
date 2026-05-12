@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LLM Gateway</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:sans-serif;background:#111;color:#eee;padding:20px;max-width:1000px;margin:auto}
+h1{font-size:20px;margin-bottom:16px}
+h2{font-size:15px;color:#999;margin:14px 0 6px}
+.card{background:#1a1a24;border-radius:8px;padding:14px;margin-bottom:10px;border:1px solid #333}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+.row label{min-width:70px;font-size:12px;color:#999}
+.row input,.row select{flex:1;min-width:100px;padding:6px 8px;background:#111;border:1px solid #333;border-radius:4px;color:#eee;font-size:12px}
+.row input:focus{border-color:#66f}
+.pc{background:#111;border:1px solid #333;border-radius:6px;padding:10px;margin-bottom:6px}
+.btn{padding:6px 14px;border:none;border-radius:4px;cursor:pointer;font-size:12px;color:#fff;margin:2px}
+.bp{background:#66f} .bd{background:#e44} .bg{background:#282}
+.st{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.st div{padding:5px 10px;border-radius:4px;font-size:11px}
+.ok{background:#151;color:#4a4;border:1px solid #282}
+.fail{background:#411;color:#e44;border:1px solid #822}
+.na{background:#222;color:#888;border:1px solid #444}
+pre.log{background:#0a0a0e;padding:10px;border-radius:4px;font-size:11px;max-height:200px;overflow:auto;color:#888}
+</style>
+</head>
+<body>
+<h1>LLM Gateway</h1>
+<div id=st class=st></div>
+
+<div class=card>
+<h2>Gateway</h2>
+<div class=row><label>Port</label><input id=gp type=number></div>
+<div class=row><label>API Key</label><input id=gk type=text style=flex:2></div>
+</div>
+
+<div class=card>
+<h2>Providers</h2>
+<div id=pl></div>
+<button class="btn bg" onclick=addProvider()>+ Add Provider</button>
+</div>
+
+<div class=card>
+<h2>Routes</h2>
+<div id=rl></div>
+<button class="btn bg" onclick=addRoute()>+ Add Route</button>
+</div>
+
+<div class=card>
+<button class="btn bg" onclick=save() style="padding:8px 24px">Save</button>
+<span id=msg style="color:#4a4;font-size:12px;margin-left:8px"></span>
+</div>
+
+<div class=card>
+<h2>Log</h2>
+<pre class=log id=logArea></pre>
+<button class="btn bp" onclick=clearLog()>Clear</button>
+</div>
+
+<script>
+var P = [];
+var R = [];
+var nextId = 1000;
+
+function uid() { return 'p' + (nextId++); }
+
+async function load() {
+  try {
+    var r = await fetch('/api/config');
+    var d = await r.json();
+    P = d.providers || [];
+    R = d.routes || [];
+    document.getElementById('gp').value = d.gateway.port || 3456;
+    document.getElementById('gk').value = d.gateway.apiKey || '';
+    render();
+  } catch(e) {
+    document.getElementById('pl').innerHTML = '<div style=color:#e44>Load failed: ' + e.message + '</div>';
+  }
+}
+
+function render() {
+  // Providers
+  var pe = document.getElementById('pl');
+  if (!P.length) { pe.innerHTML = '<div style=color:#555;padding:6px>No providers</div>'; }
+  else {
+    var h = '';
+    for (var i = 0; i < P.length; i++) {
+      var p = P[i];
+      h += '<div class=pc>';
+      h += '<div class=row><label>Name</label><input value="' + esc(p.name) + '" onchange="P[' + i + '].name=this.value" style=flex:0.5>';
+      h += '<label>ID</label><input value="' + esc(p.id) + '" onchange="P[' + i + '].id=this.value" style=flex:0.3>';
+      h += '<label>On</label><input type=checkbox' + (p.enabled !== false ? ' checked' : '') + ' onchange="P[' + i + '].enabled=this.checked">';
+      h += '<button class="btn bd" onclick="P.splice(' + i + ',1);render()">x</button></div>';
+      h += '<div class=row><label>Base URL</label><input value="' + esc(p.baseUrl) + '" onchange="P[' + i + '].baseUrl=this.value"></div>';
+      h += '<div class=row><label>API Key</label><input type=password value="' + esc(p.apiKey) + '" onchange="P[' + i + '].apiKey=this.value"></div>';
+      h += '</div>';
+    }
+    pe.innerHTML = h;
+  }
+
+  // Routes
+  var re = document.getElementById('rl');
+  var opts = '';
+  for (var j = 0; j < P.length; j++) { opts += '<option value="' + esc(P[j].id) + '">' + esc(P[j].name || P[j].id) + '</option>'; }
+  if (!R.length) { re.innerHTML = '<div style=color:#555;padding:6px>No routes</div>'; }
+  else {
+    var h2 = '';
+    for (var i = 0; i < R.length; i++) {
+      var r = R[i];
+      h2 += '<div class=row style=background:#0f0f13;padding:6px;border-radius:4px>';
+      h2 += '<span style=color:#555;font-size:12px>' + (i+1) + '.</span>';
+      h2 += '<input id="rp_' + i + '" value="' + esc(r.pattern) + '" placeholder="Exact model name" onchange="R[' + i + '].pattern=this.value" style=width:200px>';
+      h2 += '<select id="rt_' + i + '" onchange="R[' + i + '].target=this.value" style=width:120px>' + opts + '</select>';
+      h2 += '<input value="' + esc(r.label||'') + '" onchange="R[' + i + '].label=this.value" style=flex:1>';
+      h2 += '<button class="btn bg" onclick="testRoute(' + i + ')">test</button>';
+      h2 += '<button class="btn bd" onclick="R.splice(' + i + ',1);render()">x</button></div>';
+    }
+    re.innerHTML = h2;
+  }
+}
+
+function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function addProvider() { P.push({id:uid(),name:'New',baseUrl:'',apiKey:'',enabled:true}); render(); }
+function addRoute() { R.push({pattern:'',target:P.length?P[0].id:'',label:''}); render(); }
+
+async function testRoute(idx) {
+  // Read values DIRECTLY from DOM (not from in-memory R array)
+  var patEl = document.getElementById('rp_' + idx);
+  var tgtEl = document.getElementById('rt_' + idx);
+  if (!patEl || !tgtEl) { alert('Route not found'); return; }
+
+  var pat = patEl.value.trim();
+  var pid = tgtEl.value;
+  if (!pat) { document.getElementById('msg').textContent = 'Model name is empty'; return; }
+  if (!pid) { document.getElementById('msg').textContent = 'No target selected'; return; }
+
+  // Sync to in-memory R array, then save + test
+  R[idx].pattern = pat;
+  R[idx].target = pid;
+
+  document.getElementById('msg').textContent = 'Testing...';
+  var b = buildConfig();
+  try {
+    var sr = await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(b) });
+    var sd = await sr.json();
+    if (!sd.ok) { document.getElementById('msg').textContent = 'Save failed'; return; }
+  } catch(e) { document.getElementById('msg').textContent = 'Save error: ' + e.message; return; }
+
+  try {
+    var r = await fetch('/api/test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({provider: pid, pattern: pat}) });
+    var d = await r.json();
+    var status = d.ok ? 'OK' : 'FAIL';
+    var color = d.ok ? '#4a4' : '#e44';
+    document.getElementById('msg').textContent = '[' + pat + ' -> ' + pid + '] ' + status + ': ' + (d.message || '');
+    document.getElementById('msg').style.color = color;
+  } catch(e) {
+    document.getElementById('msg').textContent = 'Test error: ' + e.message;
+    document.getElementById('msg').style.color = '#e44';
+  }
+  setTimeout(function() { document.getElementById('msg').style.color = '#4a4'; }, 5000);
+}
+
+function buildConfig() {
+  return {
+    gateway: { port: +document.getElementById('gp').value || 3456, apiKey: document.getElementById('gk').value },
+    providers: P.map(function(p) { return { id: p.id, name: p.name, baseUrl: p.baseUrl, apiKey: p.apiKey, enabled: p.enabled !== false }; }),
+    routes: R.map(function(r) { return { pattern: r.pattern, target: r.target, label: r.label }; })
+  };
+}
+
+async function save() {
+  document.getElementById('msg').textContent = 'Saving...';
+  var b = buildConfig();
+  try {
+    var r = await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(b) });
+    var d = await r.json();
+    document.getElementById('msg').textContent = d.ok ? 'Saved!' : 'Save failed';
+  } catch(e) { document.getElementById('msg').textContent = 'Error: ' + e.message; }
+}
+
+async function status() {
+  try {
+    var r = await fetch('/api/status');
+    var s = await r.json();
+    var h = '';
+    if (s.providers) {
+      for (var i = 0; i < s.providers.length; i++) {
+        var x = s.providers[i];
+        var cls = x.ok ? 'ok' : (x.checked ? 'fail' : 'na');
+        var txt = x.checked ? (x.ok ? 'OK' : 'ERR') : '--';
+        h += '<div class="' + cls + '">' + esc(x.name) + ': ' + txt + '</div>';
+      }
+    }
+    document.getElementById('st').innerHTML = h;
+  } catch(e) {}
+}
+
+async function refreshLog() {
+  try {
+    var r = await fetch('/api/logs');
+    var d = await r.json();
+    document.getElementById('logArea').textContent = (d.logs || []).join('\n') || '(empty)';
+  } catch(e) {}
+}
+
+function clearLog() { fetch('/api/logs/clear',{method:'POST'}).then(refreshLog); }
+
+load();
+status();
+refreshLog();
+setInterval(status, 10000);
+setInterval(refreshLog, 5000);
+</script>
+</body>
+</html>

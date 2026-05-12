@@ -1,0 +1,7 @@
+node_modules/
+gateway-config.json
+*.log
+.gw-output.log
+.gw.pid
+.DS_Store
+Thumbs.db
