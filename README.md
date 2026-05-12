@@ -1,94 +1,110 @@
-# LLM Gateway
+<div align="center">
+  <h1>LLM Gateway</h1>
+  <p><strong>Anthropic-native routing proxy for multi-backend LLM access</strong></p>
+  <p>Route requests by exact model name — no format conversion, no fuzzy matching.</p>
+  <p>
+    <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
+    <img src="https://img.shields.io/badge/platform-Windows-lightgrey" alt="Platform">
+    <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node.js">
+  </p>
+</div>
 
-Anthropic 格式纯透传路由网关。接收 CC Switch 的请求，根据模型名精确匹配，转发到对应后端（DeepSeek / LM Studio）。
+---
 
-## 架构
+## Why
+
+Running Claude Code through CC Switch to DeepSeek is smooth — until you need a local multimodal model for vision tasks. That's where routing breaks: CC Switch points to one backend, and you're stuck.
+
+LLM Gateway sits between CC Switch and your LLM backends. It receives every request in native Anthropic format, matches the model name against your route table, and forwards to the right provider. No format conversion, no intermediate protocol — the exact same request body goes straight to DeepSeek or LM Studio.
+
+## How it works
 
 ```
-Claude Code → CC Switch → Gateway (:3456) → DeepSeek / LM Studio
-                              ├─ 管理面板 (http://localhost:3456)
-                              ├─ API 端点 (/v1/messages)
-                              └─ 系统托盘 (start-tray.vbs)
+Claude Code → CC Switch → LLM Gateway (:3456) → DeepSeek    (reasoning, coding)
+                                               → LM Studio   (vision, local models)
 ```
 
-## 链路
+Every request keeps the same model name end-to-end. The gateway just matches it.
 
-| 层 | 组件 | 职责 |
-|----|------|------|
-| 1 | Claude Code | 发送请求，模型名由 settings.json 控制 |
-| 2 | CC Switch | 拦截请求，替换模型名，发到网关 |
-| 3 | Gateway | 精确匹配模型名 → 转发到对应 Provider |
-| 4 | DeepSeek / LM Studio | 实际处理请求 |
+| Layer | Component | Role |
+|-------|-----------|------|
+| 1 | Claude Code | Sends requests. Model names come from CC Switch mapping |
+| 2 | CC Switch | Intercepts, rewrites model name, forwards to gateway |
+| 3 | LLM Gateway | Matches model name **exactly** → routes to the right provider |
+| 4 | DeepSeek / LM Studio | Processes the request |
 
-## 启动
+No fuzzy matching. No "smart" fallback. If the model name doesn't match a route entry, the gateway returns an error — you decide what goes where.
 
-**托盘模式（推荐）:** 双击 `start-tray.vbs`
-- 网关在后台运行，右下角托盘出现 Node.js 图标
-- 双击图标 → 打开管理面板
-- 右键 → Exit → 关闭网关
+## Features
 
-**前台模式（调试用）:** 双击 `start.bat`
+- **Exact-match routing** — a one-to-one mapping from model name to provider. What you see is what you get.
+- **Anthropic format, end to end** — no conversion layer, no proxy translation. Both DeepSeek and LM Studio speak Anthropic natively.
+- **System tray launcher** — double-click to start, icon in tray, right-click to exit. No terminal window needed.
+- **Web admin panel** — manage providers and routes from a browser. Add a route, click "test", see a real request go through.
+- **Honest testing** — the test button on each route sends a live request through the complete chain. If the provider rejects your model name, you see the error — not a fabricated "passed."
+- **Pluggable providers** — DeepSeek and LM Studio ship as defaults. Add any OpenAI-compatible or Anthropic-compatible backend.
 
-## 管理面板
+## Quick start
 
-访问 http://localhost:3456
+**1. Start the gateway**
 
-### Gateway 设置
-- **Port** — 监听端口（默认 3456）
-- **API Key** — 访问网关的凭证，CC Switch 的 `ANTHROPIC_AUTH_TOKEN` 填这个
+Double-click `start-tray.vbs` — the gateway starts minimized, and a tray icon appears. Open your browser to `http://localhost:3456`.
 
-### Providers（供应商）
-每条记录对应一个后端服务：
-- **ID** — 唯一标识，路由规则用这个来引用
-- **Name** — 显示名称
-- **Base URL** — API 地址（不用带 `/v1/messages`，网关自动拼接）
-- **API Key** — 该供应商的密钥（LM Studio 留空即可）
-- **Enabled** — 是否启用
+**2. Add your DeepSeek key**
 
-### Routes（路由规则）
-每条规则是 **精确模型名 → 目标供应商** 的一对一映射：
+In the admin panel, paste your DeepSeek API key into the DeepSeek provider field. Click **Save**.
 
-| 模型名（CC Switch 发来的） | → | 目标供应商 |
-|---|---|---|
-| `DeepSeek-V4-Pro[1m]` | → | DeepSeek |
-| `qwen/qwen3-4b` | → | LM Studio |
-
-模型名必须**完全一致**才能匹配，没有模糊搜索，没有 fallback。
-
-### 测试按钮
-每条路由后面的 **test** 按钮会：
-1. 自动保存当前配置
-2. 用该路由的模型名发真实请求走完整链路
-3. 显示真实结果（200 通过 / 错误信息）
-
-**状态灯**只显示服务器是否在线（TCP 连通），路由是否能跑通看 test 结果。
-
-## CC Switch 配置
+**3. Configure CC Switch**
 
 ```json
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://localhost:3456/v1",
-    "ANTHROPIC_AUTH_TOKEN": "<网关管理面板的 API Key>",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "DeepSeek-V4-Pro[1m]",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "DeepSeek-V4-Flash[1m]",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "DeepSeek-V4-Flash[1m]"
+    "ANTHROPIC_AUTH_TOKEN": "<gateway API key from admin panel>",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "DeepSeek-V4-Pro[1m]"
   }
 }
 ```
 
-模型名必须跟 Routes 里的精确匹配。
+**4. Route your vision requests**
 
-## 文件结构
+In CC Switch, map a model to `qwen-vision` (or any name containing your configured pattern). The gateway sends it to LM Studio.
+
+## Admin panel
+
+| Section | What it does |
+|---------|-------------|
+| **Gateway** | Port and API key (the key CC Switch uses) |
+| **Providers** | Backend services. Each has a name, base URL, and API key |
+| **Routes** | Exact model name → target provider mappings |
+
+### Testing a route
+
+Every route has a **test** button. Click it and the gateway:
+1. Saves your current config
+2. Sends a real request through the full chain with the exact model name
+3. Shows the response — success or the actual error
+
+## Use cases
+
+- **Claude Code + DeepSeek with vision fallback** — use DeepSeek for coding, LM Studio with Qwen for screenshots
+- **Multi-model workflows** — route different model names to different providers from one CC Switch configuration
+- **Local-first development** — test with local models, switch to remote when ready, without changing your Claude Code config
+
+## Files
 
 ```
 llm-gateway/
-├── index.js              # 网关程序
-├── admin.html            # 管理面板页面
-├── start-tray.vbs        # 托盘模式启动（双击）
-├── start-tray.ps1        # PowerShell 托盘脚本
-├── start.bat             # 前台模式启动（备用）
-├── gateway-config.json   # 配置文件（管理面板保存）
-├── package.json
-└── README.md
+├── index.js           # Gateway
+├── admin.html         # Admin panel
+├── start-tray.vbs     # System tray launcher (double-click)
+├── start-tray.ps1     # PowerShell tray script
+├── start.bat          # Foreground mode (fallback)
+├── .gitignore
+├── README.md
+└── package.json
 ```
+
+## License
+
+MIT
